@@ -1,5 +1,4 @@
 from urllib.request import urlretrieve
-from pprint import pprint
 import speech_recognition as sr
 from pydub import AudioSegment
 from termcolor import colored
@@ -10,8 +9,8 @@ from vk_api.utils import get_random_id
 
 
 def checking_reply_forward(msg, vk_session):
+    messages = []
     print("Checking reply forward")
-    # pprint(msg)
     if "reply_message" in msg:
         print("Replied message.")
         msg = msg['reply_message']
@@ -21,10 +20,15 @@ def checking_reply_forward(msg, vk_session):
         print("Forwarded message.")
         # pprint(msg['fwd_messages'][0])
         for message in msg['fwd_messages']:
+            print(len(msg["fwd_messages"]))
+            print("MESSAGE")
+            print(msg['fwd_messages'])
+            print(message)
             if not message:
                 pass
             # pprint(message)
-            return checking_reply_forward(message, vk_session)
+            messages.append(checking_reply_forward(message, vk_session))
+        return messages
     print("Nothing!")
     return msg
 
@@ -68,7 +72,7 @@ def recognizing(file_wav):
     return text
 
 
-def vk_message_sending(vk, event, text):
+def vk_message_sending(vk, event, text: str):
     print(f"Sending vk message. Text: {text}")
     vk.messages.send(
         user_id=event.user_id,
@@ -82,7 +86,7 @@ def main():
     vk = vk_session.get_api()
     long_poll = VkLongPoll(vk_session)
 
-    print(colored("Starting", "red"))
+    print(colored("Starting", "green"))
 
     for event in long_poll.listen():
         if event.type == VkEventType.MESSAGE_NEW and event.to_me:
@@ -92,20 +96,30 @@ def main():
                 {'message_ids': {event.message_id}}
             )["items"][0]
 
-            message_data = checking_reply_forward(message_data, vk_session)
+            messages_data = checking_reply_forward(message_data, vk_session)
 
-            pprint(message_data)
-            link_mp3 = message_data["attachments"]
-            print(link_mp3)
-            if not link_mp3:
-                vk_message_sending(vk, event, "Send me audio message.")
-                continue
-            vk_message_sending(vk, event, "Just a moment.")
-            link_mp3 = link_mp3[0]["audio_message"]["link_mp3"]
-            file_mp3 = downloading(link_mp3)
-            file_wav = converting(file_mp3)
-            text = recognizing(file_wav)
-            vk_message_sending(vk, event, text)
+            for message_data in messages_data:
+                if isinstance(message_data, str):  # if a message wasn't forward
+                    message_data = messages_data
+
+                link_mp3 = message_data["attachments"]
+                if not link_mp3 or all(link_mp3[i]["type"] != "audio_message" for i in range(len(link_mp3))):
+                    vk_message_sending(vk, event, "Send me audio message. \n"
+                                                  "(If you replied the audio message, please, forward it)")
+                    continue
+                try:
+                    link_mp3 = link_mp3[0]["audio_message"]["link_mp3"]
+                    file_mp3 = downloading(link_mp3)
+                    file_wav = converting(file_mp3)
+                    text = recognizing(file_wav)
+                    vk_message_sending(vk, event, text)
+                except Exception as ex:
+                    print(ex)
+                    vk_message_sending(vk, event, "Sorry, something went wrong, i need some rest :(")
+
+                if messages_data == message_data:
+                    break  # if a message wasn't forward
+
 
             print("Done.\n\n")
 
